@@ -258,53 +258,65 @@ def Imagen():
 
 @post('/Descargar')
 def Descargar():
-	dbcnf = loadDatabaseSettings('db.json');
-	db = mysql.connector.connect(
-		host='localhost', port = dbcnf['port'],
-		database = dbcnf['dbname'],
-		user = dbcnf['user'],
-		password = dbcnf['password']
-	)
-	
-	
-	###/ obtener el cuerpo de la peticion
-	if not request.json:
-		return {"R":-1}
-	######/
-	R = 'token' in request.json and 'id' in request.json  
-	# TODO checar si estan vacio los elementos del json
-	if not R:
-		return {"R":-1}
-	
-	# TODO validar correo en json
-	# Comprobar que el usuario sea valido
-	TKN = request.json['token'];
-	idImagen = request.json['id'];
-	
-	R = False
-	try:
-		with db.cursor() as cursor:
-			cursor.execute('select id_Usuario from AccesoToken where token = "'+TKN+'"');
-			R = cursor.fetchall()
-	except Exception as e: 
-		print(e)
-		db.close()
-		return {"R":-2}
-		
-	
-	
-	# Buscar imagen y enviarla
-	
-	try:
-		with db.cursor() as cursor:
-			cursor.execute('Select name,ruta from  Imagen where id = '+str(idImagen));
-			R = cursor.fetchall()
-	except Exception as e: 
-		print(e)
-		db.close()
-		return {"R":-3}
-	print(Path("img").resolve(),R[0][1])
-	return static_file(R[0][1],Path(".").resolve())
+    dbcnf = loadDatabaseSettings('db.json')
+    db = mysql.connector.connect(
+        host='localhost', port = dbcnf['port'],
+        database = dbcnf['dbname'],
+        user = dbcnf['user'],
+        password = dbcnf['password']
+    )
+    
+    ###/ obtener el cuerpo de la peticion
+    if not request.json:
+        return {"R":-1}
+    ######/
+    R = 'token' in request.json and 'id' in request.json  
+    # TODO checar si estan vacio los elementos del json
+    if not R:
+        return {"R":-1}
+    
+    TKN = request.json['token']
+    idImagen = request.json['id']
+    
+    # Comprobar que el usuario sea valido (Parchado contra Inyección SQL)
+    R = False
+    try:
+        with db.cursor() as cursor:
+            query_token = 'SELECT id_Usuario FROM AccesoToken WHERE token = %s'
+            cursor.execute(query_token, (TKN,))
+            R = cursor.fetchall()
+    except Exception as e: 
+        print(e)
+        db.close()
+        return {"R":-2}
+        
+    # Si el token no devuelve resultados, cerramos y salimos
+    if not R:
+        db.close()
+        return {"R":-1} 
+        
+    id_Usuario = R[0][0]
+    
+    # Buscar imagen y enviarla (Parchado contra Inyección SQL y IDOR)
+    try:
+        with db.cursor() as cursor:
+            query_img = 'SELECT name, ruta FROM Imagen WHERE id = %s AND id_Usuario = %s'
+            cursor.execute(query_img, (idImagen, id_Usuario))
+            R = cursor.fetchall()
+    except Exception as e: 
+        print(e)
+        db.close()
+        return {"R":-3}
+        
+    db.close()
+    
+    # Si la imagen no existe o no le pertenece a este usuario, bloqueamos la descarga
+    if not R:
+        return {"R":-4} 
+        
+    print(Path("img").resolve(), R[0][1])
+    return static_file(R[0][1], Path(".").resolve())
+
 
 if __name__ == '__main__':
     run(host='localhost', port=8080, debug=True)
