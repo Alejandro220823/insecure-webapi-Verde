@@ -177,67 +177,81 @@ def Login():
 """
 @post('/Imagen')
 def Imagen():
-	#Directorio
-	tmp = Path('tmp')
-	if not tmp.exists():
-		tmp.mkdir()
-	img = Path('img')
-	if not img.exists():
-		img.mkdir()
-	
-	###/ obtener el cuerpo de la peticion
-	if not request.json:
-		return {"R":-1}
-	######/
-	R = 'name' in request.json  and 'data' in request.json and 'ext' in request.json  and 'token' in request.json
-	# TODO checar si estan vacio los elementos del json
-	if not R:
-		return {"R":-1}
-	
-	dbcnf = loadDatabaseSettings('db.json');
-	db = mysql.connector.connect(
-		host='localhost', port = dbcnf['port'],
-		database = dbcnf['dbname'],
-		user = dbcnf['user'],
-		password = dbcnf['password']
-	)
+    # Directorio
+    tmp = Path('tmp')
+    if not tmp.exists():
+        tmp.mkdir()
+    img = Path('img')
+    if not img.exists():
+        img.mkdir()
+    
+    ###/ obtener el cuerpo de la peticion
+    if not request.json:
+        return {"R":-1}
+    ######/
+    R = 'name' in request.json  and 'data' in request.json and 'ext' in request.json  and 'token' in request.json
+    if not R:
+        return {"R":-1}
 
-	# Validar si el usuario esta en la base de datos
-	TKN = request.json['token'];
-	
-	R = False
-	try:
-		with db.cursor() as cursor:
-			cursor.execute(f'select id_Usuario from AccesoToken where token = "{TKN}"');
-			R = cursor.fetchall()
-	except Exception as e: 
-		print(e)
-		db.close()
-		return {"R":-2}
-	
-	
-	id_Usuario = R[0][0];
-	with open(f'tmp/{id_Usuario}',"wb") as imagen:
-		imagen.write(base64.b64decode(request.json['data'].encode()))
-	
-	############################
-	############################
-	# Guardar info del archivo en la base de datos
-	try:
-		with db.cursor() as cursor:
-			cursor.execute(f'insert into Imagen values(null,"{request.json["name"]}","img/",{id_Usuario})');
-			cursor.execute('select max(id) as idImagen from Imagen where id_Usuario = '+str(id_Usuario));
-			R = cursor.fetchall()
-			idImagen = R[0][0];
-			cursor.execute('update Imagen set ruta = "img/'+str(idImagen)+'.'+str(request.json['ext'])+'" where id = '+str(idImagen));
-			db.commit()
-			# Mover archivo a su nueva locacion
-			shutil.move('tmp/'+str(id_Usuario),'img/'+str(idImagen)+'.'+str(request.json['ext']))
-			return {"R":0,"D":idImagen}
-	except Exception as e: 
-		print(e)
-		db.close()
-		return {"R":-3}
+    # --- PARCHE DE SEGURIDAD 1: Lista Blanca de Extensiones ---
+    ext_permitidas = ['png', 'jpg', 'jpeg', 'gif']
+    ext_usuario = str(request.json['ext']).lower()
+    
+    if ext_usuario not in ext_permitidas:
+        return {"R":-5} # Rechazar si no es una imagen válida
+
+    dbcnf = loadDatabaseSettings('db.json')
+    db = mysql.connector.connect(
+        host='localhost', port = dbcnf['port'],
+        database = dbcnf['dbname'],
+        user = dbcnf['user'],
+        password = dbcnf['password']
+    )
+
+    TKN = request.json['token']
+    
+    # Validar token (Parchado contra Inyección SQL)
+    try:
+        with db.cursor() as cursor:
+            cursor.execute('SELECT id_Usuario FROM AccesoToken WHERE token = %s', (TKN,))
+            res_token = cursor.fetchall()
+    except Exception as e: 
+        print(e)
+        db.close()
+        return {"R":-2}
+    
+    if not res_token:
+        db.close()
+        return {"R":-1}
+        
+    id_Usuario = res_token[0][0]
+    
+    with open(f'tmp/{id_Usuario}',"wb") as imagen:
+        imagen.write(base64.b64decode(request.json['data'].encode()))
+    
+    # Guardar info del archivo (Parchado contra Inyección SQL)
+    try:
+        with db.cursor() as cursor:
+            # 1. Insertar el nombre seguro
+            cursor.execute('INSERT INTO Imagen VALUES(null, %s, "img/", %s)', (request.json["name"], id_Usuario))
+            
+            # 2. Buscar el id recien creado
+            cursor.execute('SELECT max(id) FROM Imagen WHERE id_Usuario = %s', (id_Usuario,))
+            res_id = cursor.fetchall()
+            idImagen = res_id[0][0]
+            
+            # 3. Actualizar la ruta con la extensión validada
+            ruta_final = f'img/{idImagen}.{ext_usuario}'
+            cursor.execute('UPDATE Imagen SET ruta = %s WHERE id = %s', (ruta_final, idImagen))
+            db.commit()
+            
+            # Mover archivo a su nueva locacion
+            shutil.move(f'tmp/{id_Usuario}', ruta_final)
+            return {"R":0,"D":idImagen}
+    except Exception as e: 
+        print(e)
+        db.close()
+        return {"R":-3}
 	
 """
 /*
