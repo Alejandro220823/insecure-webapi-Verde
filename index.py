@@ -54,33 +54,41 @@ def getToken():
 """
 @post('/Registro')
 def Registro():
-	dbcnf = loadDatabaseSettings('db.json');
-	db = mysql.connector.connect(
-		host='localhost', port = dbcnf['port'],
-		database = dbcnf['dbname'],
-		user = dbcnf['user'],
-		password = dbcnf['password']
-	)
-	####/ obtener el cuerpo de la peticion
-	if not request.json:
-		return {"R":-1}
-	R = 'uname' in request.json and 'email' in request.json and 'password' in request.json
-	# TODO checar si estan vacio los elementos del json
-	if not R:
-		return {"R":-1}
-	# TODO validar correo en json
-	# TODO Control de error de la DB
-	R = False
-	try:
-		with db.cursor() as cursor:
-			cursor.execute(f'insert into Usuario values(null,"{request.json["uname"]}","{request.json["email"]}",md5("{request.json["password"]}"))');
-			R = cursor.lastrowid
-			db.commit()
-		db.close()
-	except Exception as e:
-		print(e) 
-		return {"R":-2}
-	return {"R":0,"D":R}
+    dbcnf = loadDatabaseSettings('db.json')
+    db = mysql.connector.connect(
+        host='localhost', port = dbcnf['port'],
+        database = dbcnf['dbname'],
+        user = dbcnf['user'],
+        password = dbcnf['password']
+    )
+    
+    ####/ obtener el cuerpo de la peticion
+    if not request.json:
+        return {"R":-1}
+        
+    R = 'uname' in request.json and 'email' in request.json and 'password' in request.json
+    if not R:
+        return {"R":-1}
+
+    # --- PARCHE DE SEGURIDAD: Hashear contraseña con SHA-256 en lugar de MD5 ---
+    password_plana = request.json["password"]
+    password_hash = hashlib.sha256(password_plana.encode()).hexdigest()
+    
+    R = False
+    try:
+        with db.cursor() as cursor:
+            # Consulta parametrizada (%s) para evitar Inyección SQL
+            query = 'INSERT INTO Usuario VALUES(null, %s, %s, %s)'
+            valores = (request.json["uname"], request.json["email"], password_hash)
+            
+            cursor.execute(query, valores)
+            R = cursor.lastrowid
+            db.commit()
+        db.close()
+    except Exception as e:
+        print(e) 
+        return {"R":-2}
+    return {"R":0,"D":R}
 
 
 
