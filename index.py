@@ -3,6 +3,7 @@ import random
 import hashlib
 import mysql.connector
 import base64
+import secrets
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -26,18 +27,7 @@ function loadDatabaseSettings(pathjs):
 
 """
 def getToken():
-	tiempo = datetime.now().timestamp()
-	numero = random.random()
-	cadena = str(tiempo) + str(numero)
-	numero2 = random.random()
-	cadena2 = str(numero)+str(tiempo)+str(numero2)
-	m = hashlib.sha1()
-	m.update(cadena.encode())
-	P = m.hexdigest()
-	m = hashlib.md5()
-	m.update(cadena.encode())
-	Q = m.hexdigest()
-	return f"{P[:20]}{Q[20:]}"
+	return secrets.token_hex(20)
 
 """
 */ 
