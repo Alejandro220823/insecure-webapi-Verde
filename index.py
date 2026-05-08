@@ -119,8 +119,10 @@ def Login():
 	R = False
 	try:
 		with db.cursor() as cursor:
-			print(f'Select id from  Usuario where uname ="{request.json["uname"]}" and password = md5("{request.json["password"]}")')
-			cursor.execute(f'Select id from  Usuario where uname ="{request.json["uname"]}" and password = md5("{request.json["password"]}")');
+			# Cambiado a consulta parametrizada para evitar Inyección SQL
+			query = 'SELECT id FROM Usuario WHERE uname = %s AND password = MD5(%s)'
+			valores = (request.json["uname"], request.json["password"])
+			cursor.execute(query, valores)
 			R = cursor.fetchall()
 	except Exception as e: 
 		print(e)
